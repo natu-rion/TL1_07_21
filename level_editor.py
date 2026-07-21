@@ -1,5 +1,6 @@
 import bpy
 import math
+import bpy_extras
 
 # ブレンダーに登録するアドオン情報
 bl_info = {
@@ -86,43 +87,71 @@ class MYADDON_OT_create_sphere(bpy.types.Operator):
 
         return{"FINISHED"}
     
-#オペレーター　シーン出力
-class MYADDON_OT_export_scene(bpy.types.Operator):
+class MYADDON_OT_export_scene(bpy.types.Operator,bpy_extras.io_utils.ExportHelper):
     bl_idname = "myaddon.myaddon_ot_export_scene"
     bl_label = "シーン出力"
     bl_description = "シーン情報をExportします"
 
-    def execute(self,context):
+    filename_ext = ".scene"
+
+    def execute(self, context):
+
         print("シーン情報をExportします")
-        print("オブジェクト数 =", len(bpy.context.scene.objects))
 
-        #シーン内の全オブジェクトについて
-        for object in bpy.context.scene.objects:
-            print(object.type + " - " + object.name)
-            #ローカルトランスフォーム行列から平行移動、回転、スケーリングを抽出
-            #型は Vector,Quternion,Vector
-            trans,rot,scale=object.matrix_local.decompose()
-            #回転をクオータニオンからEulerに変換
-            rot = rot.to_euler()
+        self.export()
 
-            #ラジアンから度数法に変換
-            rot.x=math.degrees(rot.x)
-            rot.y=math.degrees(rot.y)
-            rot.z=math.degrees(rot.z)
+        self.report({"INFO"}, "シーン情報をExportしました")
 
-            #トランスフォーム情報を表示する
-            print("Trans(%f,%f,%f)" % (trans.x,trans.y,trans.z))
-            print("Rot(%f,%f,%f)" % (rot.x,rot.y,rot.z))
-            print("Scale(%f,%f,%f)" % (scale.x,scale.y,scale.z))
+        return {'FINISHED'}
+    
+    def write_and_print(self, file, text):
+        file.write(text)
+        file.write("\n")
+        print(text)
 
-            #親オブジェクトの名前を表示
-            if object.parent:
-                print("Parent:"+object.parent.name)
-            print()
+    def export(self):
 
-        print("シーン情報をExportしました")
-        self.report({"INFO"},"シーン情報をExportしました")
-        return {"FINISHED"}
+        print("シーン情報出力開始... %r" % self.filepath)
+
+        with open(self.filepath, "wt") as file:
+
+            file.write("SCENE\n")
+
+            # シーン内の全オブジェクトについて
+            for object in bpy.context.scene.objects:
+
+                if(object.parent):
+                    continue
+                self.parse_scene_recursive(file,object,0)
+
+    def parse_scene_recursive(self,file,object,level):
+        """シーン解析再帰関数"""
+
+        self.write_and_print(file, object.type + "-"+object.name)
+        trans, rot, scale= object.matrix_local.decompose()
+
+        #
+        rot = rot.to_euler()
+
+        #
+        rot.x = math.degrees(rot.x)
+        rot.y = math.degrees(rot.y)
+        rot.z = math.degrees(rot.z)
+
+        #深さ分インデントする
+        indent = ""
+        for i in range(level):
+            indent += "\t"
+
+        #トランスフォーム情報
+        self.write_and_print(file,indent + "Trans(%f,%f,%f)" % (trans.x,trans.y,trans.z))
+        self.write_and_print(file,indent +"Rot(%f,%f,%f)" % (rot.x,rot.y,rot.z))
+        self.write_and_print(file,indent +"Scale(%f,%f,%f)" % (scale.x,scale.y,scale.z))
+        self.write_and_print(file,"")
+
+        #子ノードに進む
+        for child in object.children:
+            self.parse_scene_recursive(file,child,level +1)
 
 #C++でいうここからがメインループ 上がグローバル関数等
 #Blenderに登録するクラスリスト
