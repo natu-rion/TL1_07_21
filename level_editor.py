@@ -1,4 +1,5 @@
 import bpy
+import math
 
 # ブレンダーに登録するアドオン情報
 bl_info = {
@@ -35,9 +36,13 @@ class TOPBAR_MT_my_menu(bpy.types.Menu):
     #サブメニューの描画
     def draw(self,context):
 
+        #トップバーのエディターメニューに項目を追加
+        self.layout.operator(MYADDON_OT_export_scene.bl_idname,
+            text=MYADDON_OT_export_scene.bl_label)
+
          #トップバーのエディターメニューに項目を追加
-        self.layout.operator(MYADON_OT_create_sphere.bl_idname,
-            text=MYADON_OT_create_sphere.bl_label)
+        self.layout.operator(MYADDON_OT_create_sphere.bl_idname,
+            text=MYADDON_OT_create_sphere.bl_label)
 
         #トップバーのエディターメニューに項目を追加
         self.layout.operator(MYADDON_OT_stretch_vertex.bl_idname,
@@ -54,7 +59,7 @@ class TOPBAR_MT_my_menu(bpy.types.Menu):
 
 #オペレーター 頂点を伸ばす
 class MYADDON_OT_stretch_vertex(bpy.types.Operator):
-    bl_idname="myaddon.myaddon_ot_steretch_vertex"
+    bl_idname="myaddon.myaddon_ot_stretch_vertex"
     bl_label="頂点を伸ばす"
     bl_description="頂点座標を引っ張って伸ばします"
     #リドゥ、アンドゥ可能オプション
@@ -69,7 +74,7 @@ class MYADDON_OT_stretch_vertex(bpy.types.Operator):
         return {"FINISHED"}
 
 #オペレーター ICO球生成
-class MYADON_OT_create_sphere(bpy.types.Operator):
+class MYADDON_OT_create_sphere(bpy.types.Operator):
     bl_idname = "myaddon.myaddon_ot_create_object"
     bl_label = "ICO球を生成します"
     bl_options = {"REGISTER","UNDO"}
@@ -80,11 +85,50 @@ class MYADON_OT_create_sphere(bpy.types.Operator):
         print("ICO球を生成しました")
 
         return{"FINISHED"}
+    
+#オペレーター　シーン出力
+class MYADDON_OT_export_scene(bpy.types.Operator):
+    bl_idname = "myaddon.myaddon_ot_export_scene"
+    bl_label = "シーン出力"
+    bl_description = "シーン情報をExportします"
+
+    def execute(self,context):
+        print("シーン情報をExportします")
+        print("オブジェクト数 =", len(bpy.context.scene.objects))
+
+        #シーン内の全オブジェクトについて
+        for object in bpy.context.scene.objects:
+            print(object.type + " - " + object.name)
+            #ローカルトランスフォーム行列から平行移動、回転、スケーリングを抽出
+            #型は Vector,Quternion,Vector
+            trans,rot,scale=object.matrix_local.decompose()
+            #回転をクオータニオンからEulerに変換
+            rot = rot.to_euler()
+
+            #ラジアンから度数法に変換
+            rot.x=math.degrees(rot.x)
+            rot.y=math.degrees(rot.y)
+            rot.z=math.degrees(rot.z)
+
+            #トランスフォーム情報を表示する
+            print("Trans(%f,%f,%f)" % (trans.x,trans.y,trans.z))
+            print("Rot(%f,%f,%f)" % (rot.x,rot.y,rot.z))
+            print("Scale(%f,%f,%f)" % (scale.x,scale.y,scale.z))
+
+            #親オブジェクトの名前を表示
+            if object.parent:
+                print("Parent:"+object.parent.name)
+            print()
+
+        print("シーン情報をExportしました")
+        self.report({"INFO"},"シーン情報をExportしました")
+        return {"FINISHED"}
 
 #C++でいうここからがメインループ 上がグローバル関数等
 #Blenderに登録するクラスリスト
 classes =(
-    MYADON_OT_create_sphere,
+    MYADDON_OT_export_scene,
+    MYADDON_OT_create_sphere,
     MYADDON_OT_stretch_vertex,
     TOPBAR_MT_my_menu,
 )
