@@ -1,6 +1,9 @@
 import bpy
 import math
 import bpy_extras
+import gpu
+import gpu_extras.batch
+import copy
 
 # ブレンダーに登録するアドオン情報
 bl_info = {
@@ -76,7 +79,7 @@ class MYADDON_OT_stretch_vertex(bpy.types.Operator):
 
 #オペレーター ICO球生成
 class MYADDON_OT_create_sphere(bpy.types.Operator):
-    bl_idname = "myaddon.myaddon_ot_create_object"
+    bl_idname = "myaddon.create_sphere"
     bl_label = "ICO球を生成します"
     bl_options = {"REGISTER","UNDO"}
 
@@ -118,40 +121,150 @@ class MYADDON_OT_export_scene(bpy.types.Operator,bpy_extras.io_utils.ExportHelpe
             file.write("SCENE\n")
 
             # シーン内の全オブジェクトについて
-            for object in bpy.context.scene.objects:
+            for obj in bpy.context.scene.objects:
 
-                if(object.parent):
+                if(obj.parent):
                     continue
-                self.parse_scene_recursive(file,object,0)
+                self.parse_scene_recursive(file,obj,0)
 
-    def parse_scene_recursive(self,file,object,level):
-        """シーン解析再帰関数"""
+    def parse_scene_recursive(self, file, obj, level):
 
-        self.write_and_print(file, object.type + "-"+object.name)
-        trans, rot, scale= object.matrix_local.decompose()
+        indent = "\t" * level
 
-        #
+        self.write_and_print(file, indent + obj.type)
+
+        trans, rot, scale = obj.matrix_local.decompose()
+
         rot = rot.to_euler()
 
-        #
         rot.x = math.degrees(rot.x)
         rot.y = math.degrees(rot.y)
         rot.z = math.degrees(rot.z)
 
-        #深さ分インデントする
-        indent = ""
-        for i in range(level):
-            indent += "\t"
+        self.write_and_print(file, indent + "Trans(%f,%f,%f)" % (trans.x, trans.y, trans.z))
+        self.write_and_print(file, indent + "Rot(%f,%f,%f)" % (rot.x, rot.y, rot.z))
+        self.write_and_print(file, indent + "Scale(%f,%f,%f)" % (scale.x, scale.y, scale.z))
 
-        #トランスフォーム情報
-        self.write_and_print(file,indent + "Trans(%f,%f,%f)" % (trans.x,trans.y,trans.z))
-        self.write_and_print(file,indent +"Rot(%f,%f,%f)" % (rot.x,rot.y,rot.z))
-        self.write_and_print(file,indent +"Scale(%f,%f,%f)" % (scale.x,scale.y,scale.z))
-        self.write_and_print(file,"")
+        if "file_name" in obj:
+            self.write_and_print(file, indent + "N %s" % obj["file_name"])
 
-        #子ノードに進む
-        for child in object.children:
-            self.parse_scene_recursive(file,child,level +1)
+        self.write_and_print(file, indent + "END")
+        self.write_and_print(file, "")
+
+        for child in obj.children:
+            self.parse_scene_recursive(file, child, level + 1)
+
+class OBJECT_PT_file_name(bpy.types.Panel):
+    """オブジェクトのファイルネームパネル"""
+    bl_idname = "OBJECT_PT_file_name"
+    bl_label = "FileName"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "object"
+
+    #サブメニューの描画
+    def draw(self,context):
+        #パネルに項目を追加
+        if "file_name" in context.object:
+            #既にプロパティがあれば表示
+            self.layout.prop(context.object,'["file_name"]',text=self.bl_label)
+        else:
+            #プロパティがなければプロパティ追加ボタン表示
+            self.layout.operator(MYADDON_OT_add_filename.bl_idname)
+
+#オペレーター カスタムプロパティ ファイルネーム追加
+class MYADDON_OT_add_filename(bpy.types.Operator):
+    bl_idname = "myaddon.myaddon_ot_add_filename"
+    bl_label = "FileName 追加"
+    bl_description = "['file_name']カスタムプロパティを追加します"
+    bl_options ={"REGISTER","UNDO"}
+
+    def execute(self,context):
+
+        #カスタムプロパティを追加
+        context.object["file_name"] = ""
+        return {"FINISHED"}
+    
+# コライダー描画
+class DrawCollider:
+
+    #描画ハンドル
+    handle = None
+
+    @staticmethod
+    #3Dビューに登録する描画関数
+    def draw_collider():
+       
+       #頂点データ
+       vertices ={"pos":[]} 
+
+       #インデックスデータ
+       indices = []
+
+       #各頂点の中心からのオフセット
+       offsets = [
+            [-0.5,-0.5,-0.5], #左下前
+            [+0.5,-0.5,-0.5], #右下前
+            [-0.5,+0.5,-0.5], #左上前
+            [+0.5,+0.5,-0.5], #右上前
+            [-0.5,-0.5,+0.5], #左下奥
+            [+0.5,-0.5,+0.5], #右下奥
+            [-0.5,+0.5,+0.5], #左上奥
+            [+0.5,+0.5,+0.5], #右上奥
+       ]
+
+       #立方体のX,Y,Z方向サイズ
+       size = [2,2,2]
+
+       for object in bpy.context.scene.objects:
+           #追加前の頂点数
+           start = len(vertices["pos"])
+
+           #boxの８頂点分回す
+           for offset in offsets:
+               pos = copy.copy(object.location)
+               #中心点の座標をコピー
+               pos[0]+=offset[0]*size[0]
+               pos[1]+=offset[1]*size[1]
+               pos[2]+=offset[2]*size[2]
+
+               #頂点データリストに座標を追加
+               vertices['pos'].append(pos)
+               
+               indices.extend([
+                   
+                   #前面を構成
+                   [start+0,start+1],
+                   [start+2,start+3],
+                   [start+0,start+2],
+                   [start+1,start+3],
+                   
+                   #奥面を構成
+                   [start+4,start+5],
+                   [start+6,start+7],
+                   [start+4,start+6],
+                   [start+5,start+7],
+
+                   #手前と奥を繋ぐ辺
+                   [start+0,start+4],
+                   [start+1,start+5],
+                   [start+2,start+6],
+                   [start+3,start+7],
+                   ])
+               
+       #ビルトインシェーダーを取得
+       shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+
+       #バッチを作成
+       batch = gpu_extras.batch.batch_for_shader(shader,"LINES",vertices,indices = indices)
+
+       #シェーダーのパラメータを設定
+       color=[0.5,1.0,1.0,1.0]
+       shader.bind()
+       shader.uniform_float("color",color)
+
+       #描画
+       batch.draw(shader)
 
 #C++でいうここからがメインループ 上がグローバル関数等
 #Blenderに登録するクラスリスト
@@ -160,6 +273,8 @@ classes =(
     MYADDON_OT_create_sphere,
     MYADDON_OT_stretch_vertex,
     TOPBAR_MT_my_menu,
+    MYADDON_OT_add_filename,
+    OBJECT_PT_file_name,
 )
 
 #アドオン有効時のコールバック
@@ -170,15 +285,32 @@ def register():
 
     #メニューに項目追加
     bpy.types.TOPBAR_MT_editor_menus.append(TOPBAR_MT_my_menu.submenu)
+
+    #3Dビューに描画関数追加
+    DrawCollider.handle = bpy.types.SpaceView3D.draw_handler_add(DrawCollider.draw_collider,(),"WINDOW","POST_VIEW")
+
     print("レベルエディタが有効化されました")
 
 def unregister():
-    #メニューから項目削除
-    bpy.types.TOPBAR_MT_editor_menus.remove(TOPBAR_MT_my_menu.submenu)
 
-    #Blenderクラスから削除
-    for cls in classes:
-        bpy.utils.unregister_class(cls)
+    bpy.types.TOPBAR_MT_editor_menus.remove(
+        TOPBAR_MT_my_menu.submenu
+    )
+
+    bpy.types.SpaceView3D.draw_handler_remove(
+        DrawCollider.handle,
+        "WINDOW"
+    )
+
+    for cls in reversed(classes):
+        print("unregister ->", cls.__name__)
+
+        try:
+            bpy.utils.unregister_class(cls)
+        except Exception as e:
+            print("FAILED ->", cls.__name__)
+            print(e)
+
     print("レベルエディタが無効化されました")
     
 if __name__ == "__main__":
